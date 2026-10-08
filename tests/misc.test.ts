@@ -76,6 +76,11 @@ describe("emotes", () => {
     expect(applyEmotes("already <:kekw:1>", emotes)).toBe("already <:kekw:1>");
     expect(applyEmotes("oh no :kekw] and :dance) and :KEKW", emotes)).toBe("oh no <:kekw:1> and <a:dance:2> and <:kekw:1>");
     expect(applyEmotes("ok :3 and a:kekwx and 10:30", emotes)).toBe("ok :3 and a:kekwx and 10:30");
+    // colon-less name: only when it's the last word / whole message
+    expect(applyEmotes("dance", emotes)).toBe("<a:dance:2>");
+    expect(applyEmotes("lol that's wild kekw", emotes)).toBe("lol that's wild <:kekw:1>");
+    expect(applyEmotes("kekw is a word i use midsentence", emotes)).toBe("kekw is a word i use midsentence");
+    expect(applyEmotes("they dance. kekw!", emotes)).toBe("they dance. <:kekw:1>!");
   });
 });
 
