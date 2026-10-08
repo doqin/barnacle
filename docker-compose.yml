@@ -1,0 +1,14 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      # edit the persona without rebuilding; the bot hot-reloads it
+      - ./character:/app/character:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "const s=require('fs').statSync('/tmp/heartbeat');process.exit(Date.now()-s.mtimeMs<90000?0:1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
