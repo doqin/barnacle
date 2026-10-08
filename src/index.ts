@@ -39,7 +39,7 @@ client.once(Events.ClientReady, async (c) => {
   const saved = await loadUsage(today.day).catch(() => null);
   if (saved) limiter.restore(saved);
 
-  await registerCommands().catch((err) => log.error({ err }, "command registration failed"));
+  await registerCommands(c.application.id).catch((err) => log.error({ err }, "command registration failed"));
 
   setInterval(() => void flushUsage(), 30_000);
   setInterval(() => void runCondenseJob(), 6 * 3_600_000);

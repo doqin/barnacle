@@ -11,7 +11,6 @@ services:
     environment:
       # --- required ---
       DISCORD_TOKEN: CHANGE_ME
-      DISCORD_CLIENT_ID: CHANGE_ME
       GROQ_API_KEY: CHANGE_ME
       SUPABASE_URL: https://CHANGE_ME.supabase.co
       SUPABASE_SERVICE_ROLE_KEY: CHANGE_ME

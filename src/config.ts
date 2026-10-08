@@ -13,7 +13,6 @@ const bool = z.enum(["true", "false"]).transform((v) => v === "true");
 
 const schema = z.object({
   DISCORD_TOKEN: z.string().min(1),
-  DISCORD_CLIENT_ID: z.string().min(1),
   GROQ_API_KEY: z.string().min(1),
   SUPABASE_URL: z.url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),

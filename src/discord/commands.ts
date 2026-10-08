@@ -12,9 +12,10 @@ const commands = [
     .addBooleanOption((o) => o.setName("stop").setDescription("true = stop DMing you (default), false = allow again")),
 ].map((c) => c.toJSON());
 
-export async function registerCommands() {
+/** `appId` comes from the logged-in client, so there's no separate client-ID setting to get wrong. */
+export async function registerCommands(appId: string) {
   const rest = new REST().setToken(config.DISCORD_TOKEN);
-  await rest.put(Routes.applicationCommands(config.DISCORD_CLIENT_ID), { body: commands });
+  await rest.put(Routes.applicationCommands(appId), { body: commands });
   log.info("slash commands registered");
 }
 
