@@ -74,6 +74,8 @@ describe("emotes", () => {
   it("expands known emotes and leaves unknown ones", () => {
     expect(applyEmotes("lol :kekw: and :dance: but :nope:", emotes)).toBe("lol <:kekw:1> and <a:dance:2> but :nope:");
     expect(applyEmotes("already <:kekw:1>", emotes)).toBe("already <:kekw:1>");
+    expect(applyEmotes("oh no :kekw] and :dance) and :KEKW", emotes)).toBe("oh no <:kekw:1> and <a:dance:2> and <:kekw:1>");
+    expect(applyEmotes("ok :3 and a:kekwx and 10:30", emotes)).toBe("ok :3 and a:kekwx and 10:30");
   });
 });
 

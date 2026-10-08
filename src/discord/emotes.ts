@@ -18,7 +18,7 @@ export function emotePrompt(emotes: EmoteMap): string {
   if (emotes.size === 0) return "";
   const names = [...emotes.keys()].sort(() => Math.random() - 0.5).slice(0, MAX_LISTED);
   return (
-    `This server has custom emotes. You may occasionally use one when its name fits the mood, written as :name: ` +
+    `This server has custom emotes. You may occasionally use one when its name fits the mood, written exactly as :name: with a colon on BOTH sides ` +
     `(never invent names, never use more than one per message): ${names.join(", ")}.`
   );
 }
@@ -26,8 +26,13 @@ export function emotePrompt(emotes: EmoteMap): string {
 /** Turn :name: into Discord's <:name:id> syntax for known emotes; unknown ones are left as-is. */
 export function applyEmotes(text: string, emotes: EmoteMap): string {
   if (emotes.size === 0) return text;
-  return text.replace(/(?<!<a?):([A-Za-z0-9_]{2,32}):/g, (m, name: string) => {
-    const e = emotes.get(name);
-    return e ? `<${e.animated ? "a" : ""}:${name}:${e.id}>` : m;
+  const byLower = new Map([...emotes].map(([name, e]) => [name.toLowerCase(), { name, ...e }]));
+  const names = [...emotes.keys()].sort((a, b) => b.length - a.length).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  // Models often botch the closing colon (":name]", ":name)", ":name"), so for names we know about
+  // accept a closer of ":", "]", ")", or just a word boundary. Unknown :words: are left untouched.
+  const re = new RegExp(`(?<!<a?|[A-Za-z0-9]):(${names.join("|")})(?::|\\]|\\)|(?![A-Za-z0-9_]))`, "gi");
+  return text.replace(re, (_m, name: string) => {
+    const e = byLower.get(name.toLowerCase());
+    return e ? `<${e.animated ? "a" : ""}:${e.name}:${e.id}>` : _m;
   });
 }
