@@ -1,0 +1,62 @@
+# ZimaOS / CasaOS custom app: App Store -> Custom Install -> Import, paste this file,
+# fill in the CHANGE_ME values, then Install.
+name: barnacle
+
+services:
+  bot:
+    image: ghcr.io/doqin/barnacle:latest
+    container_name: barnacle
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      # --- required ---
+      DISCORD_TOKEN: CHANGE_ME
+      DISCORD_CLIENT_ID: CHANGE_ME
+      GROQ_API_KEY: CHANGE_ME
+      SUPABASE_URL: https://CHANGE_ME.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: CHANGE_ME
+      # --- optional: web search (leave empty to disable) ---
+      TAVILY_API_KEY: ""
+      # --- behaviour ---
+      TZ: Asia/Ho_Chi_Minh
+      OUTREACH_ENABLED: "true"
+      OUTREACH_START_HOUR: "10"
+      OUTREACH_END_HOUR: "22"
+      LOG_LEVEL: info
+    # Optional: edit her persona without a new image. Create the folder first and put
+    # character.md in it (copy it from the repo), otherwise the bot won't start.
+    # volumes:
+    #   - /DATA/AppData/barnacle/character:/app/character:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "const s=require('fs').statSync('/tmp/heartbeat');process.exit(Date.now()-s.mtimeMs<90000?0:1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    x-casaos:
+      envs:
+        - container: DISCORD_TOKEN
+          description:
+            en_us: Discord bot token
+        - container: GROQ_API_KEY
+          description:
+            en_us: Groq API key (free tier)
+        - container: SUPABASE_SERVICE_ROLE_KEY
+          description:
+            en_us: Supabase service-role key (keep secret)
+
+x-casaos:
+  architectures:
+    - amd64
+  main: bot
+  author: doqin
+  category: Chat
+  title:
+    en_us: Barnacle
+  tagline:
+    en_us: Discord bot with a character and memory
+  description:
+    en_us: Discord bot with a character sheet, per-user memory, and an LLM brain (Groq free tier + Supabase).
+  icon: https://cdn.jsdelivr.net/gh/IceWhaleTech/CasaOS-AppStore@main/Apps/Discord/icon.png
+  index: /
+  port_map: ""
