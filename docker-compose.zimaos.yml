@@ -23,6 +23,9 @@ services:
       OUTREACH_START_HOUR: "10"
       OUTREACH_END_HOUR: "22"
       LOG_LEVEL: info
+    labels:
+      # Watchtower only updates containers that carry this label
+      com.centurylinklabs.watchtower.enable: "true"
     # Optional: edit her persona without a new image. Create the folder first and put
     # character.md in it (copy it from the repo), otherwise the bot won't start.
     # volumes:
@@ -44,6 +47,20 @@ services:
         - container: SUPABASE_SERVICE_ROLE_KEY
           description:
             en_us: Supabase service-role key (keep secret)
+
+  # Checks GHCR daily and restarts the bot when a new image has been published.
+  # Needs the Docker socket, so it can control containers: it is limited to labelled ones.
+  watchtower:
+    image: nickfedor/watchtower:latest
+    container_name: barnacle-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      TZ: Asia/Ho_Chi_Minh              # keep in sync with the bot's TZ
+      WATCHTOWER_SCHEDULE: "0 0 4 * * *" # 04:00 daily (six-field cron, seconds first)
+      WATCHTOWER_LABEL_ENABLE: "true"    # only touch containers labelled for it
+      WATCHTOWER_CLEANUP: "true"         # remove old images after updating
 
 x-casaos:
   architectures:
