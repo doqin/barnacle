@@ -4,6 +4,8 @@ import {
   buildSystemPrompt,
   characterNames,
   dedupeRepeatedReply,
+  SILENT,
+  SPLIT,
   detectLanguage,
   dropRepeatedEmoticon,
   dropRepeatedTic,
@@ -38,6 +40,7 @@ interface Entry {
 }
 
 const HISTORY_CAP = 12;
+const MAX_PARTS = 4;
 const channelState = new Map<string, ChannelState>();
 const history = new Map<string, Entry[]>();
 const queues = new Map<string, Promise<void>>();
@@ -252,18 +255,38 @@ async function respondInner(client: Client, store: CharacterStore, msg: Message,
     return;
   }
 
+  // the model chose not to answer (pure reaction / acknowledgement)
+  if (reply.includes(SILENT) && reply.replace(SILENT, "").replace(SPLIT, "").trim().length < 3) {
+    log.debug({ channelId }, "model chose silence");
+    return;
+  }
+
   const recentBot = (history.get(channelId) ?? []).filter((e) => e.isBot).slice(-4).map((e) => e.text);
-  reply = stripMetaLeaks(dropRepeatedEmoticon(dropRepeatedTic(dedupeRepeatedReply(reply), recentBot), recentBot));
+  const parts: string[] = [];
+  for (const raw of reply.replaceAll(SILENT, "").split(SPLIT).slice(0, MAX_PARTS)) {
+    let part = stripMetaLeaks(dropRepeatedEmoticon(dropRepeatedTic(dedupeRepeatedReply(raw.trim()), recentBot), recentBot));
+    if (character.meta.emoji_style === "emoticon") part = stripUnicodeEmoji(part) || part;
+    if (part && !parts.includes(part)) parts.push(part);
+  }
+  if (!parts.length) return;
+  reply = parts.join("\n");
 
   // small human-ish pause proportional to length, net of LLM latency
-  await sleep(Math.max(0, Math.min(2500, reply.length * 25) - (Date.now() - started)));
+  await sleep(Math.max(0, Math.min(2500, (parts[0]?.length ?? 0) * 25) - (Date.now() - started)));
 
-  if (character.meta.emoji_style === "emoticon") reply = stripUnicodeEmoji(reply) || reply;
-  const chunks = splitMessage(applyEmotes(reply, emoteMap));
   const allowedMentions = { parse: [], repliedUser: false } as const;
-  for (const [i, chunk] of chunks.entries()) {
-    if (i === 0 && pinged && msg.guild) await msg.reply({ content: chunk, allowedMentions });
-    else if ("send" in msg.channel) await msg.channel.send({ content: chunk, allowedMentions });
+  let first = true;
+  for (const [pi, part] of parts.entries()) {
+    if (pi > 0) {
+      // typing pause between consecutive messages, like someone thumbing out the next bubble
+      if ("sendTyping" in msg.channel) await msg.channel.sendTyping().catch(() => {});
+      await sleep(Math.min(2200, 500 + part.length * 25));
+    }
+    for (const chunk of splitMessage(applyEmotes(part, emoteMap))) {
+      if (first && pinged && msg.guild) await msg.reply({ content: chunk, allowedMentions });
+      else if ("send" in msg.channel) await msg.channel.send({ content: chunk, allowedMentions });
+      first = false;
+    }
   }
 
   const state = channelState.get(channelId) ?? { lastBotAt: 0, lastAddressedId: null, unpingedStreak: 0 };
