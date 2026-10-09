@@ -279,7 +279,7 @@ async function respondInner(client: Client, store: CharacterStore, msg: Message,
         userId: msg.author.id,
         channelId,
         quota: searchQuota.remaining(msg.author.id),
-        budgetRemaining: Number(limiter.budgetRemaining().toFixed(2)),
+        budget: limiter.breakdown(),
       },
       "search skipped: quota or LLM budget",
     );

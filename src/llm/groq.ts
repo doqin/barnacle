@@ -18,7 +18,9 @@ export interface CompleteOpts {
 }
 
 const client = new Groq({ apiKey: config.GROQ_API_KEY, maxRetries: 0 });
-export const limiter = new GroqLimiter();
+export const limiter = new GroqLimiter(undefined, Date.now, undefined, [
+  ...new Set([config.MODEL_CHAT, config.MODEL_FALLBACK, config.MODEL_UTILITY]),
+]);
 
 export const approxTokens = (s: string) => Math.ceil(s.length / 3.5);
 
@@ -53,9 +55,17 @@ async function attempt(opts: CompleteOpts, tools?: ToolDef[], extraTokens = 0): 
   const est = promptTokens + maxTokens + extraTokens;
 
   let lastErr: unknown;
+  let exhausted: BudgetExhausted | undefined;
   for (const model of chain) {
     assertFree(model);
-    await limiter.acquire(est, priority);
+    try {
+      await limiter.acquire(est, priority, model);
+    } catch (err) {
+      if (!(err instanceof BudgetExhausted)) throw err;
+      exhausted = err; // Groq limits are per model, so a spent model just means: try the next one
+      log.info({ model, priority }, "model budget spent, falling back");
+      continue;
+    }
     try {
       const isOss = model.startsWith("openai/gpt-oss");
       const res = await client.chat.completions.create({
@@ -68,7 +78,7 @@ async function attempt(opts: CompleteOpts, tools?: ToolDef[], extraTokens = 0): 
         ...(isOss ? { reasoning_effort: "low" as const, include_reasoning: false } : {}),
       } as Parameters<typeof client.chat.completions.create>[0]);
       const completion = res as Groq.Chat.Completions.ChatCompletion;
-      limiter.record(est, completion.usage?.total_tokens ?? est);
+      limiter.record(est, completion.usage?.total_tokens ?? est, model);
       const msg = completion.choices[0]?.message;
       const text = stripReasoning(msg?.content ?? "");
       const toolCalls = (msg?.tool_calls ?? []).map((t) => ({ name: t.function.name, args: t.function.arguments }));
@@ -76,16 +86,16 @@ async function attempt(opts: CompleteOpts, tools?: ToolDef[], extraTokens = 0): 
       lastErr = new Error(`empty completion from ${model}`);
       log.warn({ model }, "empty completion, trying next model");
     } catch (err) {
-      if (err instanceof BudgetExhausted) throw err;
       lastErr = err;
       const status = (err as { status?: number }).status;
       log.warn({ model, status, msg: (err as Error).message }, "groq call failed");
-      limiter.record(est, 0);
-      if (status === 429) limiter.penalize();
+      limiter.record(est, 0, model);
+      if (status === 429) limiter.penalize(model);
       else if (status === 401 || status === 403) throw err;
       // 429 / 404 (model gone) / 5xx → try next model in chain
     }
   }
+  if (exhausted && !lastErr) throw exhausted; // every model was out of budget before we could try any
   throw lastErr instanceof Error ? lastErr : new Error("all models failed");
 }
 

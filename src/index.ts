@@ -35,9 +35,8 @@ async function flushUsage() {
 client.once(Events.ClientReady, async (c) => {
   log.info({ tag: c.user.tag, character: store.get().meta.name }, "online");
 
-  const today = limiter.snapshot();
-  const saved = await loadUsage(today.day).catch(() => null);
-  if (saved) limiter.restore(saved);
+  const saved = await loadUsage(limiter.snapshot().day).catch(() => []);
+  limiter.restore(saved);
 
   await registerCommands(c.application.id).catch((err) => log.error({ err }, "command registration failed"));
 

@@ -4,7 +4,7 @@ A Discord bot with an LLM brain (Groq free tier), a character sheet, per-user pe
 
 ## Setup
 1. **Discord**: create an app + bot in the developer portal, enable the **Message Content Intent**, invite with `bot` + `applications.commands` scopes (permissions: read/send messages, add reactions).
-2. **Supabase**: create a project, run `db/migrations/0001_init.sql` in the SQL editor.
+2. **Supabase**: create a project, run `db/migrations/0001_init.sql` and then `db/migrations/0002_llm_usage_per_model.sql` in the SQL editor.
 3. **Groq**: create an API key (free tier).
 4. `cp .env.example .env` and fill in the secrets.
 5. Run: `docker compose up -d --build` (or `npm i && npm run dev` locally).

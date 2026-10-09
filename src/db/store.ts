@@ -232,9 +232,14 @@ export async function lastOutreachAt(userId: string): Promise<Date | null> {
 }
 
 // ---------- LLM usage ----------
-export async function loadUsage(day: string): Promise<{ requests: number; tokens: number } | null> {
-  return ok(await db.from("llm_usage").select("requests,tokens").eq("day", day).maybeSingle(), "loadUsage");
+export async function loadUsage(day: string): Promise<{ model: string; requests: number; tokens: number }[]> {
+  return (
+    (ok(await db.from("llm_usage").select("model,requests,tokens").eq("day", day), "loadUsage") as
+      | { model: string; requests: number; tokens: number }[]
+      | null) ?? []
+  );
 }
-export async function saveUsage(u: { day: string; requests: number; tokens: number }) {
-  okVoid(await db.from("llm_usage").upsert(u, { onConflict: "day" }), "saveUsage");
+export async function saveUsage(rows: { day: string; model: string; requests: number; tokens: number }[]) {
+  if (!rows.length) return;
+  okVoid(await db.from("llm_usage").upsert(rows, { onConflict: "day,model" }), "saveUsage");
 }
