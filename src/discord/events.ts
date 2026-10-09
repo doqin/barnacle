@@ -41,9 +41,22 @@ interface Entry {
 
 const HISTORY_CAP = 12;
 const MAX_PARTS = 4;
+/** Wait this long after a user's message for follow-ups before replying, so fragments are answered as one turn. */
+const DEBOUNCE_MS = 2_500;
+/** ...but never hold a batch longer than this, however long they keep typing. */
+const MAX_BATCH_WAIT_MS = 8_000;
 const channelState = new Map<string, ChannelState>();
 const history = new Map<string, Entry[]>();
 const queues = new Map<string, Promise<void>>();
+
+interface PendingBatch {
+  msgs: Message[];
+  pinged: boolean;
+  firstAt: number;
+  timer?: NodeJS.Timeout;
+}
+const pending = new Map<string, PendingBatch>();
+const pendingKey = (msg: Message) => `${msg.channelId}:${msg.author.id}`;
 
 const gateCfg = {
   followupWindowMs: config.FOLLOWUP_WINDOW_SEC * 1000,
@@ -63,6 +76,23 @@ function pushHistory(channelId: string, e: Entry) {
   list.push({ ...e, text: e.text.slice(0, 500) });
   if (list.length > HISTORY_CAP) list.shift();
   history.set(channelId, list);
+}
+
+/** Collect a user's rapid-fire messages and answer them as one turn once they pause. */
+function queueReply(client: Client, store: CharacterStore, msg: Message, username: string, pinged: boolean) {
+  const key = pendingKey(msg);
+  const batch = pending.get(key) ?? { msgs: [], pinged: false, firstAt: Date.now() };
+  batch.msgs.push(msg);
+  batch.pinged ||= pinged;
+  clearTimeout(batch.timer);
+  const wait = Math.max(0, Math.min(DEBOUNCE_MS, MAX_BATCH_WAIT_MS - (Date.now() - batch.firstAt)));
+  batch.timer = setTimeout(() => {
+    pending.delete(key);
+    const last = batch.msgs[batch.msgs.length - 1]!;
+    last.content = batch.msgs.map((m) => m.content).join("\n");
+    enqueue(last.channelId, () => respond(client, store, last, username, batch.pinged));
+  }, wait);
+  pending.set(key, batch);
 }
 
 /** Serialise replies per channel so bursts don't blow the rate limiter or interleave. */
@@ -178,27 +208,46 @@ function toChat(channelId: string, botId: string): ChatMessage[] {
   );
 }
 
-/** Discord's typing indicator lasts ~10s, so re-send it every 8s. Returns a function that stops it. */
-function keepTyping(msg: Message): () => void {
-  if (!("sendTyping" in msg.channel)) return () => {};
-  const channel = msg.channel;
-  const ping = () => void channel.sendTyping().catch(() => {});
-  ping();
-  const timer = setInterval(ping, 8_000);
-  return () => clearInterval(timer);
+/** Discord's typing indicator lasts ~10s, so re-send it every 8s. `start` is idempotent; `stop` clears it. */
+function keepTyping(msg: Message) {
+  let timer: NodeJS.Timeout | undefined;
+  return {
+    start() {
+      if (timer || !("sendTyping" in msg.channel)) return;
+      const channel = msg.channel;
+      const ping = () => void channel.sendTyping().catch(() => {});
+      ping();
+      timer = setInterval(ping, 8_000);
+    },
+    stop() {
+      clearInterval(timer);
+    },
+  };
 }
 
-/** Shows "typing…" for as long as the reply takes, including generation, search and the human-ish pause. */
+const REACTION_RE =
+  /^(?:(?:l+o+l+|lmao+|lmfao|ro+fl|(?:ha|he|hi|ke|kk|hoho)+h?|ok+a?y?|k+|nice+|true+|tru|fr|same|oof+|ye+a*h*|yep|yup|ya|ty|thx|thanks?|[:;=]-?[3dpo)(]|xd+|\^+|o\.o|t_t|wow|damn|oh+|ah+|ooh+|aw+|mm+|hm+|uh huh|bruh|rip|gg|ừ|ờ|uk|oke|okie|dạ|vâng)[\s.,!~)(:;^_>-]*)+$/iu;
+const NON_WORD_RE = /^[\p{P}\p{S}\s\p{Extended_Pictographic}]*$/u;
+
+/** Pure laughter / acknowledgement / emoji-only messages: the ones she's likely to leave unanswered, so don't show typing for them up front. */
+export const likelyReaction = (text: string) => {
+  const t = text.trim();
+  if (t.includes("?")) return false;
+  return NON_WORD_RE.test(t) || REACTION_RE.test(t) || /^(.){2,}$/u.test(t);
+};
+
+/** Shows "typing…" while the reply is being produced, but only once we know she's actually answering when it looks like a reaction. */
 async function respond(client: Client, store: CharacterStore, msg: Message, username: string, pinged: boolean) {
-  const stopTyping = keepTyping(msg);
+  const typing = keepTyping(msg);
+  if (!likelyReaction(msg.content)) typing.start();
   try {
-    await respondInner(client, store, msg, username, pinged);
+    await respondInner(client, store, msg, username, pinged, typing.start);
   } finally {
-    stopTyping();
+    typing.stop();
   }
 }
 
-async function respondInner(client: Client, store: CharacterStore, msg: Message, username: string, pinged: boolean) {
+async function respondInner(client: Client, store: CharacterStore, msg: Message, username: string, pinged: boolean, startTyping: () => void) {
   const botId = client.user!.id;
   const channelId = msg.channelId;
   const character = store.get();
@@ -255,12 +304,19 @@ async function respondInner(client: Client, store: CharacterStore, msg: Message,
     return;
   }
 
+  // they kept typing while this was generating: drop it, the newer batch will answer everything at once
+  if (pending.has(pendingKey(msg))) {
+    log.debug({ channelId }, "reply superseded by newer message");
+    return;
+  }
+
   // the model chose not to answer (pure reaction / acknowledgement)
   if (reply.includes(SILENT) && reply.replace(SILENT, "").replace(SPLIT, "").trim().length < 3) {
     log.debug({ channelId }, "model chose silence");
     return;
   }
 
+  startTyping(); // she is replying: make sure the indicator is on for the pause and following parts
   const recentBot = (history.get(channelId) ?? []).filter((e) => e.isBot).slice(-4).map((e) => e.text);
   const parts: string[] = [];
   for (const raw of reply.replaceAll(SILENT, "").split(SPLIT).slice(0, MAX_PARTS)) {
@@ -362,7 +418,7 @@ async function handleMessage(client: Client, store: CharacterStore, msg: Message
 
   const pinged = mentioned || isReplyToBot;
   await upsertUser(msg.author.id, username);
-  enqueue(msg.channelId, () => respond(client, store, msg, username, pinged));
+  queueReply(client, store, msg, username, pinged);
 }
 
 export function registerMessageEvents(client: Client, store: CharacterStore) {
