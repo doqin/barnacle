@@ -175,7 +175,27 @@ function toChat(channelId: string, botId: string): ChatMessage[] {
   );
 }
 
+/** Discord's typing indicator lasts ~10s, so re-send it every 8s. Returns a function that stops it. */
+function keepTyping(msg: Message): () => void {
+  if (!("sendTyping" in msg.channel)) return () => {};
+  const channel = msg.channel;
+  const ping = () => void channel.sendTyping().catch(() => {});
+  ping();
+  const timer = setInterval(ping, 8_000);
+  return () => clearInterval(timer);
+}
+
+/** Shows "typing…" for as long as the reply takes, including generation, search and the human-ish pause. */
 async function respond(client: Client, store: CharacterStore, msg: Message, username: string, pinged: boolean) {
+  const stopTyping = keepTyping(msg);
+  try {
+    await respondInner(client, store, msg, username, pinged);
+  } finally {
+    stopTyping();
+  }
+}
+
+async function respondInner(client: Client, store: CharacterStore, msg: Message, username: string, pinged: boolean) {
   const botId = client.user!.id;
   const channelId = msg.channelId;
   const character = store.get();
@@ -202,8 +222,6 @@ async function respond(client: Client, store: CharacterStore, msg: Message, user
   const messages: ChatMessage[] = [{ role: "system", content: system }, ...toChat(channelId, botId)];
 
   const started = Date.now();
-  if ("sendTyping" in msg.channel) void msg.channel.sendTyping().catch(() => {});
-
   let reply: string;
   try {
     let convo = messages;
