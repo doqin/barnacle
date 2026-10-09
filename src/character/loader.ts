@@ -168,12 +168,17 @@ export function dropRepeatedEmoticon(reply: string, recentBotMessages: string[])
 }
 
 const VI_CHARS = /[ăâđêôơưàáạảãằắặẳẵầấậẩẫèéẹẻẽềếệểễìíịỉĩòóọỏõồốộổỗờớợởỡùúụủũừứựửữỳýỵỷỹ]/i;
-const VI_STRONG = /\b(khong|nha|nhe|minh|ban|duoc|vay|oi|roi|cua|toi|dang)\b/i;
+const VI_STRONG = /^(khong|nha|nhe|minh|ban|duoc|vay|oi|roi|cua|toi|dang)$/i;
 
-/** Rough language guess for the latest message; "unknown" when too short to tell. */
+/**
+ * Rough language guess for the latest message; "unknown" when too short to tell.
+ * Counts words, not characters, so an English sentence with a Vietnamese loanword ("bánh mì", "phở")
+ * stays English; Vietnamese needs at least 40% of its words to look Vietnamese.
+ */
 export function detectLanguage(text: string): "vi" | "en" | "unknown" {
-  if (VI_CHARS.test(text)) return "vi";
-  if (VI_STRONG.test(text)) return "vi";
+  const words = text.split(/[^\p{L}\p{N}']+/u).filter(Boolean);
+  const vi = words.filter((w) => VI_CHARS.test(w) || VI_STRONG.test(w)).length;
+  if (vi > 0 && vi / words.length >= 0.4) return "vi";
   return /[a-z]{2,}/i.test(text) && text.trim().length >= 4 ? "en" : "unknown";
 }
 

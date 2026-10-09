@@ -120,6 +120,9 @@ describe("detectLanguage", () => {
     expect(detectLanguage("can you describe it")).toBe("en");
     expect(detectLanguage("kako ơi đang làm gì đó")).toBe("vi");
     expect(detectLanguage("minh khong biet")).toBe("vi");
+    expect(detectLanguage("what's your favourite filling for a bánh mì")).toBe("en");
+    expect(detectLanguage("have you ever tried phở")).toBe("en");
+    expect(detectLanguage("tôi thích pate")).toBe("vi");
     expect(detectLanguage("?")).toBe("unknown");
   });
 });
