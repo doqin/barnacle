@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { log } from "../logger.js";
 
 interface TavilyResult {
   title?: string;
@@ -28,6 +29,7 @@ export function formatResults(query: string, results: TavilyResult[]): string {
 
 /** One Tavily search. Only the query leaves the bot, never user identities or memories. */
 export async function webSearch(query: string): Promise<string> {
+  const started = Date.now();
   const res = await fetch("https://api.tavily.com/search", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.TAVILY_API_KEY}` },
@@ -41,7 +43,9 @@ export async function webSearch(query: string): Promise<string> {
   });
   if (!res.ok) throw new Error(`tavily ${res.status}`);
   const data = (await res.json()) as { results?: TavilyResult[] };
-  return formatResults(query, data.results ?? []);
+  const results = data.results ?? [];
+  log.info({ query, results: results.length, ms: Date.now() - started }, "web search results");
+  return formatResults(query, results);
 }
 
 /** Daily and per-user-per-hour caps so searches (and their extra LLM call) stay cheap. */
@@ -68,6 +72,15 @@ export class SearchQuota {
     const list = (this.perUser.get(userId) ?? []).filter((t) => t > cutoff);
     this.perUser.set(userId, list);
     return list;
+  }
+
+  /** Searches left today and for this user this hour. */
+  remaining(userId: string) {
+    this.roll();
+    return {
+      day: Math.max(0, this.cfg.perDay - this.today),
+      userHour: Math.max(0, this.cfg.perUserHour - this.recent(userId).length),
+    };
   }
 
   canSearch(userId: string): boolean {

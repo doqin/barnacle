@@ -266,6 +266,17 @@ async function respondInner(client: Client, store: CharacterStore, msg: Message,
   const emoteMap = character.meta.emoji_use === "none" ? new Map() : guildEmotes(msg.guild);
   const canSearch =
     searchEnabled() && searchQuota.canSearch(msg.author.id) && limiter.budgetRemaining() > 0.4;
+  if (searchEnabled() && !canSearch) {
+    log.info(
+      {
+        userId: msg.author.id,
+        channelId,
+        quota: searchQuota.remaining(msg.author.id),
+        budgetRemaining: Number(limiter.budgetRemaining().toFixed(2)),
+      },
+      "search skipped: quota or LLM budget",
+    );
+  }
   const extras = [emotePrompt(emoteMap), canSearch ? SEARCH_HINT : ""].filter(Boolean).join(" ");
   const system = buildSystemPrompt(character, {
     memory,
@@ -280,6 +291,7 @@ async function respondInner(client: Client, store: CharacterStore, msg: Message,
     if (canSearch) {
       const out = await completeWithSearch({ messages, maxTokens: 400, priority: "user" }, async (q) => {
         searchQuota.record(msg.author.id);
+        log.info({ query: q, userId: msg.author.id, channelId, quota: searchQuota.remaining(msg.author.id) }, "web search requested");
         return webSearch(q);
       });
       reply = out.text;

@@ -136,6 +136,7 @@ export async function completeWithSearch(
 
   const call = first.toolCalls.find((c) => c.name === "web_search");
   if (!call) {
+    log.debug("model answered without searching");
     if (first.text) return { text: first.text, messages: opts.messages, searched: false };
     return { text: await complete(opts), messages: opts.messages, searched: false };
   }
@@ -151,7 +152,6 @@ export async function completeWithSearch(
     note = "(you tried to look something up but it didn't work; answer from what you know and be honest that you're unsure)";
   } else {
     try {
-      log.info({ query }, "web search");
       const results = await search(query);
       note =
         `(you just looked this up on your phone. ${results}\n` +
