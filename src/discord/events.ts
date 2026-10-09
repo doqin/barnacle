@@ -3,6 +3,7 @@ import { config } from "../config.js";
 import {
   buildSystemPrompt,
   characterNames,
+  dedupeRepeatedReply,
   detectLanguage,
   dropRepeatedEmoticon,
   dropRepeatedTic,
@@ -234,7 +235,7 @@ async function respond(client: Client, store: CharacterStore, msg: Message, user
   }
 
   const recentBot = (history.get(channelId) ?? []).filter((e) => e.isBot).slice(-4).map((e) => e.text);
-  reply = stripMetaLeaks(dropRepeatedEmoticon(dropRepeatedTic(reply, recentBot), recentBot));
+  reply = stripMetaLeaks(dropRepeatedEmoticon(dropRepeatedTic(dedupeRepeatedReply(reply), recentBot), recentBot));
 
   // small human-ish pause proportional to length, net of LLM latency
   await sleep(Math.max(0, Math.min(2500, reply.length * 25) - (Date.now() - started)));

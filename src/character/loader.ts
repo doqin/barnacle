@@ -123,6 +123,29 @@ export function dropRepeatedTic(reply: string, recentBotMessages: string[]): str
   return stripped.length >= 3 ? stripped + (/[.!?…]$/.test(stripped) ? "" : ".") : reply;
 }
 
+const wordSet = (s: string) =>
+  new Set(s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3));
+
+/**
+ * Some models restate their whole answer in one message ("...ramen.The best? probably ... ramen nights.").
+ * If a later chunk of sentences mostly repeats an earlier chunk, keep only the first. Also fixes "word.Next" spacing.
+ */
+export function dedupeRepeatedReply(text: string): string {
+  const spaced = text.replace(/([a-z]{2,}[.!?…])(?=[A-Z])/g, "$1 ");
+  const sentences = spaced.match(/[^.!?…]+[.!?…]*\s*/g)?.map((s) => s.trim()).filter(Boolean) ?? [];
+  for (let i = 1; i < sentences.length; i++) {
+    const left = sentences.slice(0, i).join(" ");
+    const right = sentences.slice(i).join(" ");
+    const a = wordSet(left);
+    const b = wordSet(right);
+    if (a.size < 8 || b.size < 8) continue;
+    let shared = 0;
+    for (const w of a) if (b.has(w)) shared++;
+    if (shared / Math.min(a.size, b.size) >= 0.65) return left;
+  }
+  return spaced;
+}
+
 const TRAILING_EMOTICON = /\s*(:3|\^\^|T_T|>_<|o_o|;-;|\(¬_¬\)|¬_¬|:p|:\)|:\()\s*$/i;
 
 /** Drop a trailing emoticon when a recent bot message already ended with the same one. */

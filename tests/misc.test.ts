@@ -93,7 +93,21 @@ describe("dropRepeatedTic", () => {
   });
 });
 
-import { detectLanguage, dropRepeatedEmoticon } from "../src/character/loader.js";
+import { dedupeRepeatedReply, detectLanguage, dropRepeatedEmoticon } from "../src/character/loader.js";
+describe("dedupeRepeatedReply", () => {
+  it("keeps only the first copy of a restated answer", () => {
+    const bad =
+      "maybe the best is the classic funk trio that taught me bass lines, then some indie alt that makes me want to write weird songs, and a lo-fi jazz crew that's perfect for cooking ramen.The best? probably that old-school funk trio that got me hooked on bass, an indie-alt band that makes me write weird songs, and a lo-fi jazz crew that's perfect for ramen nights.";
+    expect(dedupeRepeatedReply(bad)).toBe(
+      "maybe the best is the classic funk trio that taught me bass lines, then some indie alt that makes me want to write weird songs, and a lo-fi jazz crew that's perfect for cooking ramen.",
+    );
+  });
+  it("leaves normal replies alone", () => {
+    const ok = "ngl i love vulfpeck for the bass. the meters are older but just as groovy, and khruangbin is my cooking music.";
+    expect(dedupeRepeatedReply(ok)).toBe(ok);
+    expect(dedupeRepeatedReply("hii. surviving?? you?")).toBe("hii. surviving?? you?");
+  });
+});
 describe("dropRepeatedEmoticon", () => {
   it("strips a trailing emoticon repeated from recent messages only", () => {
     expect(dropRepeatedEmoticon("hii :3", [])).toBe("hii :3");
