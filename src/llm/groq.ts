@@ -99,8 +99,9 @@ const SEARCH_TOOL: ToolDef = {
   function: {
     name: "web_search",
     description:
-      "Look something up online. Use ONLY for things you genuinely don't know: unfamiliar slang, memes, songs, games, " +
-      "recent events, specific facts. Never for chit-chat, opinions, or general knowledge you already have.",
+      "Look something up online. Use it whenever someone mentions or asks about a specific real-world thing you aren't sure about: " +
+      "songs, albums, bands, artists, bassists/musicians, games, shows, books, memes, slang, products, places, recent events, or facts. " +
+      "Prefer searching over guessing. Not for chit-chat, feelings, or facts about your own life.",
     parameters: {
       type: "object",
       properties: { query: { type: "string", description: "Short plain search query. No personal info." } },

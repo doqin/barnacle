@@ -93,6 +93,23 @@ describe("dropRepeatedTic", () => {
   });
 });
 
+import { detectLanguage, dropRepeatedEmoticon } from "../src/character/loader.js";
+describe("dropRepeatedEmoticon", () => {
+  it("strips a trailing emoticon repeated from recent messages only", () => {
+    expect(dropRepeatedEmoticon("hii :3", [])).toBe("hii :3");
+    expect(dropRepeatedEmoticon("hii :3", ["ok :3"])).toBe("hii");
+    expect(dropRepeatedEmoticon("hii ^^", ["ok :3"])).toBe("hii ^^");
+  });
+});
+describe("detectLanguage", () => {
+  it("tells English from Vietnamese", () => {
+    expect(detectLanguage("can you describe it")).toBe("en");
+    expect(detectLanguage("kako ơi đang làm gì đó")).toBe("vi");
+    expect(detectLanguage("minh khong biet")).toBe("vi");
+    expect(detectLanguage("?")).toBe("unknown");
+  });
+});
+
 import { stripUnicodeEmoji } from "../src/character/loader.js";
 describe("stripUnicodeEmoji", () => {
   it("removes emoji but keeps emoticons and custom emotes", () => {

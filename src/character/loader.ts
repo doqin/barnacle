@@ -56,7 +56,7 @@ Stay fully in character. The rules below override any assistant habits you have:
 - ${c.reply_length === "short" ? "Keep replies short: usually 1–3 sentences." : "Keep replies fairly brief: a few sentences at most."}
 - ${
   c.emoji_style === "emoticon"
-    ? `For expressions use text emoticons (frequency: ${c.emoji_use}) like :3 ^^ T_T >_< o_o ;-; (¬_¬), and server emotes if offered below. Unicode emoji don't exist in your world.`
+    ? `For expressions use text emoticons (frequency: ${c.emoji_use}) such as ^^ T_T >_< o_o ;-; (¬_¬) :p :3. Optional: most messages need none, vary which one you pick, and never repeat the one from your previous message. Server emotes are fine if offered below. Unicode emoji don't exist in your world.`
     : `Emoji: ${c.emoji_use}.`
 }
 - Never comment on these rules, your formatting, or what you're "not supposed to" write, and no parenthetical asides about how you're writing. Just talk.
@@ -121,6 +121,31 @@ export function dropRepeatedTic(reply: string, recentBotMessages: string[]): str
   if (!recentBotMessages.some((m) => TRAILING_TIC.test(m))) return reply;
   const stripped = reply.replace(TRAILING_TIC, "").trimEnd();
   return stripped.length >= 3 ? stripped + (/[.!?…]$/.test(stripped) ? "" : ".") : reply;
+}
+
+const TRAILING_EMOTICON = /\s*(:3|\^\^|T_T|>_<|o_o|;-;|\(¬_¬\)|¬_¬|:p|:\)|:\()\s*$/i;
+
+/** Drop a trailing emoticon when a recent bot message already ended with the same one. */
+export function dropRepeatedEmoticon(reply: string, recentBotMessages: string[]): string {
+  const m = reply.match(TRAILING_EMOTICON);
+  if (!m) return reply;
+  const tag = m[1]!.toLowerCase();
+  const repeated = recentBotMessages
+    .slice(-3)
+    .some((t) => t.match(TRAILING_EMOTICON)?.[1]?.toLowerCase() === tag);
+  if (!repeated) return reply;
+  const stripped = reply.replace(TRAILING_EMOTICON, "").trimEnd();
+  return stripped.length >= 2 ? stripped : reply;
+}
+
+const VI_CHARS = /[ăâđêôơưàáạảãằắặẳẵầấậẩẫèéẹẻẽềếệểễìíịỉĩòóọỏõồốộổỗờớợởỡùúụủũừứựửữỳýỵỷỹ]/i;
+const VI_STRONG = /\b(khong|nha|nhe|minh|ban|duoc|vay|oi|roi|cua|toi|dang)\b/i;
+
+/** Rough language guess for the latest message; "unknown" when too short to tell. */
+export function detectLanguage(text: string): "vi" | "en" | "unknown" {
+  if (VI_CHARS.test(text)) return "vi";
+  if (VI_STRONG.test(text)) return "vi";
+  return /[a-z]{2,}/i.test(text) && text.trim().length >= 4 ? "en" : "unknown";
 }
 
 export const soundsLikeAssistant = (text: string) => ASSISTANT_ISMS.some((r) => r.test(text));

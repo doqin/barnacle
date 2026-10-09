@@ -3,6 +3,8 @@ import { config } from "../config.js";
 import {
   buildSystemPrompt,
   characterNames,
+  detectLanguage,
+  dropRepeatedEmoticon,
   dropRepeatedTic,
   soundsLikeAssistant,
   stripMetaLeaks,
@@ -45,8 +47,9 @@ const gateCfg = {
 };
 
 const SEARCH_HINT =
-  "If someone mentions something you truly don't recognise (slang, a meme, a song, a game, recent news) you can quickly look " +
-  "it up on your phone with web_search instead of guessing. Don't search for chit-chat or things you already know.";
+  "You have web_search on your phone. When someone asks about or mentions a specific real thing (a song, band, artist, musician, " +
+  "game, show, book, meme, slang, product, place, recent news, or a fact you're not certain of), look it up instead of guessing " +
+  "or making something up. Skip it for chit-chat, feelings, and facts about your own life.";
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -150,7 +153,14 @@ function situation(msg: Message, username: string, emotes: string): string {
     minute: "2-digit",
     timeZone: config.TZ,
   }).format(new Date());
-  return [`You're in ${where}. Reply to ${username}'s latest message. It's ${now} for you.`, emotes]
+  const lang = detectLanguage(msg.content);
+  const langNote =
+    lang === "en"
+      ? "Their latest message is in English, so reply in English only, even if earlier messages were Vietnamese."
+      : lang === "vi"
+        ? "Their latest message is in Vietnamese, so reply in Vietnamese."
+        : "";
+  return [`You're in ${where}. Reply to ${username}'s latest message. It's ${now} for you.`, langNote, emotes]
     .filter(Boolean)
     .join(" ");
 }
@@ -224,7 +234,7 @@ async function respond(client: Client, store: CharacterStore, msg: Message, user
   }
 
   const recentBot = (history.get(channelId) ?? []).filter((e) => e.isBot).slice(-4).map((e) => e.text);
-  reply = stripMetaLeaks(dropRepeatedTic(reply, recentBot));
+  reply = stripMetaLeaks(dropRepeatedEmoticon(dropRepeatedTic(reply, recentBot), recentBot));
 
   // small human-ish pause proportional to length, net of LLM latency
   await sleep(Math.max(0, Math.min(2500, reply.length * 25) - (Date.now() - started)));
