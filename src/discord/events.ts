@@ -63,6 +63,13 @@ const gateCfg = {
   maxUnpingedStreak: config.MAX_UNPINGED_STREAK,
 };
 
+/** A search costs ~2-3K tokens (≈1-2% of the daily budget), so only stop searching when the day is nearly spent. */
+const SEARCH_MIN_BUDGET = 0.15;
+
+const NO_SEARCH_HINT =
+  "Your phone's internet isn't working right now, so you can't look anything up. If someone asks you to search or check something " +
+  "(weather, news, facts you're unsure of), say briefly that you can't right now. Never invent forecasts, results or 'what I heard'.";
+
 const SEARCH_HINT =
   "You have web_search on your phone. When someone asks about or mentions a specific real thing (a song, band, artist, musician, " +
   "game, show, book, meme, slang, product, place, recent news, or a fact you're not certain of), look it up instead of guessing " +
@@ -265,7 +272,7 @@ async function respondInner(client: Client, store: CharacterStore, msg: Message,
   const memory = await buildMemoryBlock(msg.author.id, msg.content).catch(() => "");
   const emoteMap = character.meta.emoji_use === "none" ? new Map() : guildEmotes(msg.guild);
   const canSearch =
-    searchEnabled() && searchQuota.canSearch(msg.author.id) && limiter.budgetRemaining() > 0.4;
+    searchEnabled() && searchQuota.canSearch(msg.author.id) && limiter.budgetRemaining() > SEARCH_MIN_BUDGET;
   if (searchEnabled() && !canSearch) {
     log.info(
       {
@@ -277,7 +284,7 @@ async function respondInner(client: Client, store: CharacterStore, msg: Message,
       "search skipped: quota or LLM budget",
     );
   }
-  const extras = [emotePrompt(emoteMap), canSearch ? SEARCH_HINT : ""].filter(Boolean).join(" ");
+  const extras = [emotePrompt(emoteMap), canSearch ? SEARCH_HINT : searchEnabled() ? NO_SEARCH_HINT : ""].filter(Boolean).join(" ");
   const system = buildSystemPrompt(character, {
     memory,
     situation: situation(msg, username, extras),
