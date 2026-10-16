@@ -5,7 +5,6 @@ import {
   createOutreach,
   getLiveMemories,
   getState,
-  getSummary,
   lastOutreachAt,
   listOutreachCandidates,
   listPendingOlderThan,
@@ -26,6 +25,7 @@ import {
   isEligible,
   localHour,
   pickHook,
+  pickInterest,
   reasonToTalk,
   type PolicyConfig,
 } from "./policy.js";
@@ -49,17 +49,20 @@ async function resolveExpired() {
   }
 }
 
-async function compose(store: CharacterStore, userId: string, username: string, hook: string) {
+async function compose(store: CharacterStore, userId: string, username: string, hook: string | null) {
   const character = store.get();
-  const summary = await getSummary(userId);
-  const system = buildSystemPrompt(character, {
-    memory: [summary, `- ${hook}`].filter(Boolean).join("\n"),
-    situation:
-      `You're starting a DM with ${username} on your own — they haven't messaged you lately. ` +
-      `Open with ONE short, natural message that follows up on the last memory listed above ` +
-      `(the one starting with "- " at the bottom), the way a friend who remembered would. ` +
-      `Don't announce you're checking in, don't offer help. If it doesn't feel natural, reply with exactly SKIP.`,
-  });
+  const rules =
+    `Don't announce you're checking in, don't offer help, and don't invent anything: no new events, ` +
+    `objects, plans or "you mentioned…" that isn't written in this prompt. If it doesn't feel natural, reply with exactly SKIP.`;
+  const situation = hook
+    ? `You're starting a DM with ${username} on your own — they haven't messaged you lately. ` +
+      `The one thing you remember that's worth following up on is: "${hook}". ` +
+      `Open with ONE short message about exactly that (ask how it went, or react to it), the way a friend who remembered would. ` +
+      `Stay strictly within what that memory says; add no extra details, and don't tie it to your own stuff. ${rules}`
+    : `You're starting a DM with ${username} on your own — they haven't messaged you lately. ` +
+      `You have nothing specific to follow up on, so share something small about YOUR day or interests: ${pickInterest()}. ` +
+      `Say it like a random text to a friend, optionally ending with a light question. Don't reference anything ${username} said before. ${rules}`;
+  const system = buildSystemPrompt(character, { situation });
   const messages = [
     { role: "system" as const, content: system },
     { role: "user" as const, content: "(write your opening message now)" },
@@ -87,18 +90,18 @@ export async function outreachTick(client: Client, store: CharacterStore) {
     if ((await countOutreachSince(new Date(now.getTime() - DAY))) >= config.OUTREACH_MAX_PER_DAY) return;
     if (Math.random() > config.OUTREACH_FIRE_PROBABILITY) return; // jitter: don't fire on a clock
 
-    const ranked: { id: string; username: string; score: number; hookId: string; hook: string }[] = [];
+    const ranked: { id: string; username: string; score: number; hookId: string | null; hook: string | null }[] = [];
     for (const { user, state } of await listOutreachCandidates()) {
       const last = await lastOutreachAt(user.discord_id);
       if (!isEligible(user, state, last, now, policyCfg)) continue;
       const hook = pickHook(await getLiveMemories(user.discord_id, 60), now);
-      if (!hook) continue; // nothing natural to say → stay quiet rather than send filler
+      // no memory worth following up → fall back to sharing one of Kako's own interests
       ranked.push({
         id: user.discord_id,
         username: user.username,
         score: reasonToTalk(user, now, hook),
-        hookId: hook.id,
-        hook: hook.content,
+        hookId: hook?.id ?? null,
+        hook: hook?.content ?? null,
       });
     }
     const pick = ranked.sort((a, b) => b.score - a.score)[0];
@@ -117,7 +120,7 @@ export async function outreachTick(client: Client, store: CharacterStore) {
       return;
     }
     await createOutreach(pick.id, text);
-    await markReferenced([pick.hookId]);
+    if (pick.hookId) await markReferenced([pick.hookId]);
     log.info({ userId: pick.id }, "outreach sent");
   } catch (err) {
     if (err instanceof BudgetExhausted) return;

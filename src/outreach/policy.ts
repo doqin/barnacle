@@ -80,6 +80,21 @@ export function pickHook(memories: MemoryRow[], now: Date): MemoryRow | null {
   return fresh.filter((m) => m.importance >= 3 || m.kind === "event").sort((a, b) => score(b) - score(a))[0] ?? null;
 }
 
+/** Things Kako can bring up on her own; kept to facts from the character sheet so nothing gets invented. */
+const INTERESTS = [
+  "you've been relistening to Vulfpeck and a bass line got stuck in your head",
+  "you're noodling on guitar at home and can't finish a small song you're writing",
+  "you're reading yet another romance novel (\"purely for research\") and have opinions about its pacing",
+  "you're cooking ramen with Nujabes on",
+  "you put off an admin task again and are mock-proud of how long it's been",
+  "you've been listening to Khruangbin and can't stop thinking about how good the bass groove is",
+  "you're stressing over bass practice before the next band rehearsal",
+  "you blew rent-ish money on a gacha pull for a rhythm game at 2am and have zero regrets",
+  "you're listening to The Meters and want to know if the other person likes old-school funk",
+];
+
+export const pickInterest = (): string => INTERESTS[Math.floor(Math.random() * INTERESTS.length)]!;
+
 /** Higher = better reason to reach out (silence for a while, but not forgotten). */
 export function reasonToTalk(user: UserRow, now: Date, hook: MemoryRow | null): number {
   const idleDays = (now.getTime() - new Date(user.last_interacted_at ?? now).getTime()) / DAY;

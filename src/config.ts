@@ -35,12 +35,12 @@ const schema = z.object({
   OUTREACH_TICK_MIN: z.coerce.number().default(10),
   OUTREACH_START_HOUR: z.coerce.number().min(0).max(23).default(10),
   OUTREACH_END_HOUR: z.coerce.number().min(1).max(24).default(22),
-  OUTREACH_MIN_GAP_HOURS: z.coerce.number().default(48),
-  OUTREACH_QUIET_AFTER_CHAT_HOURS: z.coerce.number().default(12),
+  OUTREACH_MIN_GAP_HOURS: z.coerce.number().default(20),
+  OUTREACH_QUIET_AFTER_CHAT_HOURS: z.coerce.number().default(6),
   OUTREACH_IGNORE_AFTER_HOURS: z.coerce.number().default(24),
-  OUTREACH_MAX_PER_DAY: z.coerce.number().default(2),
+  OUTREACH_MAX_PER_DAY: z.coerce.number().default(4),
   OUTREACH_MAX_STRIKES: z.coerce.number().default(3),
-  OUTREACH_FIRE_PROBABILITY: z.coerce.number().min(0).max(1).default(0.25),
+  OUTREACH_FIRE_PROBABILITY: z.coerce.number().min(0).max(1).default(0.4),
 
   LOG_LEVEL: z.string().default("info"),
 });

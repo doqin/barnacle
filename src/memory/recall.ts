@@ -31,9 +31,18 @@ export function similarity(a: string, b: string): number {
 
 const MAX_MEMORY_CHARS = 1100; // ≈ 300 tokens; keeps prompts small for the 8K TPM free tier
 
-/** Compact "what I remember about this person" block, or "" when nothing is known. */
-export async function buildMemoryBlock(userId: string, query: string): Promise<string> {
-  const [summary, live] = await Promise.all([getSummary(userId), getLiveMemories(userId)]);
+/** Messages that talk about the person or their past ("my", "remember", "last time"), where the summary is worth including. */
+const PERSONAL_RE = /\b(i|i'm|im|i've|my|me|mine|we|our|remember|recall|last time|again|still|yesterday|earlier|before)\b|\b(mình|tôi|tớ|tao|nhớ|hôm qua|lần trước)\b/iu;
+
+/**
+ * Compact "what I remember about this person" block, or "" when nothing is known or nothing is relevant.
+ * Memories are pulled only when the message overlaps them or is about the person; bare reactions skip the lookup entirely.
+ */
+export async function buildMemoryBlock(userId: string, query: string, reaction = false): Promise<string> {
+  if (reaction) return "";
+  const personal = PERSONAL_RE.test(query);
+  const q = new Set(tokenize(query));
+  const [summary, live] = await Promise.all([personal ? getSummary(userId) : Promise.resolve(""), getLiveMemories(userId)]);
   const lines: string[] = [];
   let used = 0;
   if (summary) {
@@ -42,6 +51,8 @@ export async function buildMemoryBlock(userId: string, query: string): Promise<s
   }
   const picked: string[] = [];
   for (const m of rankMemories(live, query).slice(0, 8)) {
+    const relevant = tokenize(m.content).some((w) => q.has(w));
+    if (!relevant && !(personal && m.importance >= 4)) continue;
     const line = `- ${m.content}`;
     if (used + line.length > MAX_MEMORY_CHARS) break;
     lines.push(line);
