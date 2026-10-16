@@ -16,15 +16,65 @@ const metaSchema = z.object({
 export interface Character {
   meta: z.infer<typeof metaSchema>;
   body: string;
+  sections: Section[];
 }
 
 /** Every name the character answers to, lowercased. */
 export const characterNames = (c: Character) =>
   [c.meta.name, ...c.meta.nicknames].map((n) => n.toLowerCase());
 
+export interface Section {
+  level: number;
+  title: string;
+  /** null = always included; otherwise the section loads only when the chat matches. "@early" = only while the conversation is young. */
+  when: RegExp | "early" | null;
+  text: string;
+}
+
+const HEADING_RE = /^(#{2,3}) (.+?)(?:\s*<!--\s*when:\s*(.+?)\s*-->)?\s*$/;
+
+/** Splits the sheet at ##/### headings; `<!-- when: a|b|c -->` after a heading makes it load on demand. */
+export function parseSections(body: string): Section[] {
+  const sections: Section[] = [];
+  let cur: Section | null = null;
+  for (const line of body.split("\n")) {
+    const m = HEADING_RE.exec(line);
+    if (m) {
+      const when = m[3] ? (m[3] === "@early" ? "early" : new RegExp(m[3], "iu")) : null;
+      cur = { level: m[1]!.length, title: m[2]!, when, text: "" };
+      sections.push(cur);
+    } else if (cur) cur.text += line + "\n";
+    else sections.push((cur = { level: 2, title: "", when: null, text: line + "\n" }));
+  }
+  return sections;
+}
+
+export interface LoreContext {
+  /** Recent chat text (latest message first matters most) used to decide which sections to load. */
+  topicText: string;
+  /** True when the bot has said little in this channel yet, so tone examples are worth including. */
+  early: boolean;
+}
+
+export function selectSections(sections: Section[], ctx: LoreContext | undefined): { body: string; loaded: string[]; skipped: string[] } {
+  const loaded: string[] = [];
+  const skipped: string[] = [];
+  const parts: string[] = [];
+  sections.forEach((sec) => {
+    const on = !ctx || sec.when === null || (sec.when === "early" ? ctx.early : sec.when.test(ctx.topicText));
+    if (sec.when !== null) (on ? loaded : skipped).push(sec.title);
+    const body = sec.text.trim();
+    if (!on) return;
+    if (sec.title) parts.push(`${"#".repeat(sec.level)} ${sec.title}\n${body}`);
+    else if (body) parts.push(body);
+  });
+  return { body: parts.join("\n\n"), loaded, skipped };
+}
+
 export function parseCharacter(raw: string): Character {
   const { data, content } = matter(raw);
-  return { meta: metaSchema.parse(data), body: content.trim() };
+  const body = content.trim();
+  return { meta: metaSchema.parse(data), body, sections: parseSections(body) };
 }
 
 /** Loads the sheet and hot-reloads it when the file changes (keeps the last good copy on errors). */
@@ -73,8 +123,10 @@ Stay fully in character. The rules below override any assistant habits you have:
 
 export function buildSystemPrompt(
   c: Character,
-  extra: { memory?: string; situation: string },
+  extra: { memory?: string; situation: string; lore?: LoreContext },
 ): string {
+  const sheet = selectSections(c.sections, extra.lore);
+  if (extra.lore) log.debug({ loaded: sheet.loaded, skipped: sheet.skipped }, "lore sections");
   const parts = [
     c.meta.mode === "character"
       ? GUARD(c.meta.name, c.meta)

@@ -27,6 +27,8 @@ import { searchEnabled, searchQuota, webSearch } from "../search/tavily.js";
 import { BudgetExhausted } from "../llm/limiter.js";
 import { log } from "../logger.js";
 import { extractMemories, type Turn } from "../memory/extract.js";
+import { asksWhatDoing, pickActivity } from "../character/activities.js";
+import { localHour } from "../outreach/policy.js";
 import { buildMemoryBlock } from "../memory/recall.js";
 import { applyReplied } from "../outreach/policy.js";
 import { applyEmotes, emotePrompt, guildEmotes } from "./emotes.js";
@@ -41,6 +43,8 @@ interface Entry {
 
 const HISTORY_CAP = 12;
 const MAX_PARTS = 4;
+const HISTORY_TURNS = 8; // turns sent to the model (the buffer keeps more)
+const HISTORY_TURN_CHARS = 400;
 /** Wait this long after a user's message for follow-ups before replying, so fragments are answered as one turn. */
 const DEBOUNCE_MS = 2_500;
 /** ...but never hold a batch longer than this, however long they keep typing. */
@@ -201,18 +205,23 @@ function situation(msg: Message, username: string, emotes: string): string {
       : lang === "vi"
         ? "Their latest message is in Vietnamese, so reply in Vietnamese."
         : "";
-  return [`You're in ${where}. Reply to ${username}'s latest message. It's ${now} for you.`, langNote, emotes]
+  const doing = asksWhatDoing(msg.content)
+    ? `They asked what you're up to. Right now you're ${pickActivity(localHour(new Date(), config.TZ))}. ` +
+      `Say that in your own words and make up one small, mundane detail; don't mention your band, bass or guitar unless that is the activity above.`
+    : "";
+  return [`You're in ${where}. Reply to ${username}'s latest message. It's ${now} for you.`, doing, langNote, emotes]
     .filter(Boolean)
     .join(" ");
 }
 
 function toChat(channelId: string, botId: string): ChatMessage[] {
-  const entries = (history.get(channelId) ?? []).slice(-10);
-  return entries.map((e) =>
-    e.authorId === botId
-      ? { role: "assistant" as const, content: e.text }
-      : { role: "user" as const, content: `${e.name}: ${e.text}` },
-  );
+  const entries = (history.get(channelId) ?? []).slice(-HISTORY_TURNS);
+  return entries.map((e) => {
+    const text = e.text.length > HISTORY_TURN_CHARS ? e.text.slice(0, HISTORY_TURN_CHARS) + "…" : e.text;
+    return e.authorId === botId
+      ? { role: "assistant" as const, content: text }
+      : { role: "user" as const, content: `${e.name}: ${text}` };
+  });
 }
 
 /** Discord's typing indicator lasts ~10s, so re-send it every 8s. `start` is idempotent; `stop` clears it. */
@@ -269,7 +278,8 @@ async function respondInner(client: Client, store: CharacterStore, msg: Message,
     }
   }
 
-  const memory = await buildMemoryBlock(msg.author.id, msg.content).catch(() => "");
+  const recent = (history.get(channelId) ?? []).slice(-4);
+  const memory = await buildMemoryBlock(msg.author.id, msg.content, likelyReaction(msg.content)).catch(() => "");
   const emoteMap = character.meta.emoji_use === "none" ? new Map() : guildEmotes(msg.guild);
   const canSearch =
     searchEnabled() && searchQuota.canSearch(msg.author.id) && limiter.budgetRemaining() > SEARCH_MIN_BUDGET;
@@ -288,8 +298,17 @@ async function respondInner(client: Client, store: CharacterStore, msg: Message,
   const system = buildSystemPrompt(character, {
     memory,
     situation: situation(msg, username, extras),
+    lore: {
+      // latest message counts for everything; earlier turns only keep a topic alive across short follow-ups
+      topicText: [msg.content, ...recent.map((e) => e.text)].join("\n"),
+      early: recent.filter((e) => e.isBot).length < 2,
+    },
   });
   const messages: ChatMessage[] = [{ role: "system", content: system }, ...toChat(channelId, botId)];
+  log.info(
+    { channelId, systemChars: system.length, memoryChars: memory.length, historyChars: messages.slice(1).reduce((n, m) => n + m.content.length, 0) },
+    "prompt size",
+  );
 
   const started = Date.now();
   let reply: string;
