@@ -20,6 +20,7 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent, // privileged: enable in the Discord developer portal
     GatewayIntentBits.DirectMessages,
+    ...(config.PRESENCE_ENABLED ? [GatewayIntentBits.GuildPresences] : []), // privileged: enable in the developer portal
   ],
   partials: [Partials.Channel, Partials.Message],
 });

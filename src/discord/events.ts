@@ -33,6 +33,7 @@ import { buildMemoryBlock } from "../memory/recall.js";
 import { applyReplied } from "../outreach/policy.js";
 import { applyEmotes, emotePrompt, guildEmotes } from "./emotes.js";
 import { decide, type ChannelState } from "./gate.js";
+import { currentActivity } from "./presence.js";
 
 interface Entry {
   authorId: string;
@@ -87,6 +88,11 @@ function pushHistory(channelId: string, e: Entry) {
   list.push({ ...e, text: e.text.slice(0, 500) });
   if (list.length > HISTORY_CAP) list.shift();
   history.set(channelId, list);
+}
+
+/** Records a message the bot sent outside the reply flow (e.g. an unprompted DM) so later replies can see it. */
+export function recordBotMessage(channelId: string, botId: string, name: string, text: string) {
+  pushHistory(channelId, { authorId: botId, name, text, isBot: true });
 }
 
 /** Collect a user's rapid-fire messages and answer them as one turn once they pause. */
@@ -188,7 +194,7 @@ function splitMessage(text: string, max = 1900): string[] {
   return out;
 }
 
-function situation(msg: Message, username: string, emotes: string): string {
+function situation(msg: Message, username: string, emotes: string, activity: string | null): string {
   const where = msg.guild
     ? `the #${"name" in msg.channel ? msg.channel.name : "channel"} channel of the server "${msg.guild.name}", where several people may be talking`
     : `a private DM with ${username}`;
@@ -209,7 +215,10 @@ function situation(msg: Message, username: string, emotes: string): string {
     ? `They asked what you're up to. Right now you're ${pickActivity(localHour(new Date(), config.TZ))}. ` +
       `Say that in your own words and make up one small, mundane detail; don't mention your band, bass or guitar unless that is the activity above.`
     : "";
-  return [`You're in ${where}. Reply to ${username}'s latest message. It's ${now} for you.`, doing, langNote, emotes]
+  const seen = activity
+    ? `On Discord you can see ${username} is currently ${activity}. Only bring it up if it fits what they're saying or the conversation is idle; never announce that you can see their status.`
+    : "";
+  return [`You're in ${where}. Reply to ${username}'s latest message. It's ${now} for you.`, doing, seen, langNote, emotes]
     .filter(Boolean)
     .join(" ");
 }
@@ -273,6 +282,12 @@ async function respondInner(client: Client, store: CharacterStore, msg: Message,
   if (!msg.guild) {
     const pending = await getPendingOutreach(msg.author.id);
     if (pending) {
+      // history is in-memory, so after a restart the opener they're answering would be missing
+      const list = history.get(channelId) ?? [];
+      if (pending.content && !list.some((e) => e.isBot && e.text === pending.content!.slice(0, 500))) {
+        list.unshift({ authorId: botId, name: character.meta.name, text: pending.content.slice(0, 500), isBot: true });
+        history.set(channelId, list);
+      }
       await resolveOutreach(pending.id, "replied");
       await upsertState(applyReplied(msg.author.id, new Date(pending.sent_at), { minGapMs: config.OUTREACH_MIN_GAP_HOURS * 3_600_000 }));
     }
@@ -297,7 +312,7 @@ async function respondInner(client: Client, store: CharacterStore, msg: Message,
   const extras = [emotePrompt(emoteMap), canSearch ? SEARCH_HINT : searchEnabled() ? NO_SEARCH_HINT : ""].filter(Boolean).join(" ");
   const system = buildSystemPrompt(character, {
     memory,
-    situation: situation(msg, username, extras),
+    situation: situation(msg, username, extras, currentActivity(client, msg.author.id)),
     lore: {
       // latest message counts for everything; earlier turns only keep a topic alive across short follow-ups
       topicText: [msg.content, ...recent.map((e) => e.text)].join("\n"),
