@@ -30,6 +30,7 @@ export interface OutreachRow {
   id: string;
   user_id: string;
   sent_at: string;
+  content: string | null;
   status: "pending" | "replied" | "ignored";
   replied_at: string | null;
 }
@@ -229,6 +230,15 @@ export async function lastOutreachAt(userId: string): Promise<Date | null> {
     "lastOutreachAt",
   ) as { sent_at: string } | null;
   return row ? new Date(row.sent_at) : null;
+}
+
+/** Last few DMs we sent this user, newest first, so new openers can avoid repeating their shape. */
+export async function recentOutreachTexts(userId: string, limit = 5): Promise<string[]> {
+  const rows = ok(
+    await db.from("outreach").select("content").eq("user_id", userId).order("sent_at", { ascending: false }).limit(limit),
+    "recentOutreachTexts",
+  ) as { content: string | null }[] | null;
+  return (rows ?? []).map((r) => r.content ?? "").filter(Boolean);
 }
 
 // ---------- LLM usage ----------

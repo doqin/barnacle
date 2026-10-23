@@ -7,6 +7,7 @@ import {
   getState,
   lastOutreachAt,
   listOutreachCandidates,
+  recentOutreachTexts,
   listPendingOlderThan,
   markReferenced,
   resolveOutreach,
@@ -17,6 +18,8 @@ import { buildSystemPrompt, soundsLikeAssistant, stripMetaLeaks, stripUnicodeEmo
 import { complete, limiter } from "../llm/groq.js";
 import { BudgetExhausted } from "../llm/limiter.js";
 import { log } from "../logger.js";
+import { recordBotMessage } from "../discord/events.js";
+import { currentActivity } from "../discord/presence.js";
 import {
   applyIgnored,
   DAY,
@@ -25,6 +28,7 @@ import {
   isEligible,
   localHour,
   pickHook,
+  pickHookStyle,
   pickInterest,
   reasonToTalk,
   type PolicyConfig,
@@ -49,19 +53,30 @@ async function resolveExpired() {
   }
 }
 
-async function compose(store: CharacterStore, userId: string, username: string, hook: string | null) {
+async function compose(store: CharacterStore, userId: string, username: string, hook: string | null, activity: string | null) {
   const character = store.get();
+  const recent = await recentOutreachTexts(userId, 5);
   const rules =
-    `Don't announce you're checking in, don't offer help, and don't invent anything: no new events, ` +
-    `objects, plans or "you mentioned…" that isn't written in this prompt. If it doesn't feel natural, reply with exactly SKIP.`;
-  const situation = hook
+    `Don't announce you're checking in and don't offer help. You may invent small new details about YOUR OWN life ` +
+    `(what you did, ate, played, felt) as long as they don't contradict your character sheet or anything in this prompt. ` +
+    `Never invent details about ${username} or "you mentioned…" claims beyond what's written here. If it doesn't feel natural, reply with exactly SKIP.`;
+  const variety = recent.length
+    ? ` You've already sent them these, so use a clearly different opening word, sentence shape and angle (never start with "hey, how"): ${recent.map((t) => `"${t}"`).join(" | ")}.`
+    : "";
+  const situation = activity
+    ? `You're starting a DM with ${username} on your own. You can see on Discord that they're right now ${activity}. ` +
+      `Write 1-2 short casual messages worth of text reacting to that, like a friend who just noticed. ${pickHookStyle()} ` +
+      `Don't claim to know anything about it beyond what's written there or common knowledge, don't say you're "watching" them or checking their status, ` +
+      `and add something real about YOU (from your character sheet, or a small fresh detail that doesn't contradict it).${variety} ${rules}`
+    : hook
     ? `You're starting a DM with ${username} on your own — they haven't messaged you lately. ` +
       `The one thing you remember that's worth following up on is: "${hook}". ` +
-      `Open with ONE short message about exactly that (ask how it went, or react to it), the way a friend who remembered would. ` +
-      `Stay strictly within what that memory says; add no extra details, and don't tie it to your own stuff. ${rules}`
+      `Write 1-2 short casual messages worth of text. ${pickHookStyle()} ` +
+      `Their side stays strictly within what that memory says (add no details about what happened to them), ` +
+      `but your own side must add something about YOU: draw on your character sheet, or make up a small fresh detail that fits it without contradicting it.${variety} ${rules}`
     : `You're starting a DM with ${username} on your own — they haven't messaged you lately. ` +
       `You have nothing specific to follow up on, so share something small about YOUR day or interests: ${pickInterest()}. ` +
-      `Say it like a random text to a friend, optionally ending with a light question. Don't reference anything ${username} said before. ${rules}`;
+      `Say it like a random text to a friend, optionally ending with a light question. Don't reference anything ${username} said before.${variety} ${rules}`;
   const system = buildSystemPrompt(character, { situation });
   const messages = [
     { role: "system" as const, content: system },
@@ -90,29 +105,34 @@ export async function outreachTick(client: Client, store: CharacterStore) {
     if ((await countOutreachSince(new Date(now.getTime() - DAY))) >= config.OUTREACH_MAX_PER_DAY) return;
     if (Math.random() > config.OUTREACH_FIRE_PROBABILITY) return; // jitter: don't fire on a clock
 
-    const ranked: { id: string; username: string; score: number; hookId: string | null; hook: string | null }[] = [];
+    const ranked: { id: string; username: string; score: number; hookId: string | null; hook: string | null; activity: string | null }[] = [];
     for (const { user, state } of await listOutreachCandidates()) {
       const last = await lastOutreachAt(user.discord_id);
       if (!isEligible(user, state, last, now, policyCfg)) continue;
       const hook = pickHook(await getLiveMemories(user.discord_id, 60), now);
-      // no memory worth following up → fall back to sharing one of Kako's own interests
+      // something visible right now makes a timely reason to talk; half the time it beats an older memory
+      const activity = currentActivity(client, user.discord_id);
+      const useActivity = !!activity && (!hook || Math.random() < 0.5);
+      // neither → fall back to sharing one of Kako's own interests
       ranked.push({
         id: user.discord_id,
         username: user.username,
-        score: reasonToTalk(user, now, hook),
-        hookId: hook?.id ?? null,
-        hook: hook?.content ?? null,
+        score: reasonToTalk(user, now, hook) + (useActivity ? 3 : 0),
+        hookId: useActivity ? null : (hook?.id ?? null),
+        hook: useActivity ? null : (hook?.content ?? null),
+        activity: useActivity ? activity : null,
       });
     }
     const pick = ranked.sort((a, b) => b.score - a.score)[0];
     if (!pick) return;
 
-    const text = await compose(store, pick.id, pick.username, pick.hook);
+    const text = await compose(store, pick.id, pick.username, pick.hook, pick.activity);
     if (!text) return;
 
     try {
       const discordUser = await client.users.fetch(pick.id);
-      await discordUser.send({ content: text, allowedMentions: { parse: [] } });
+      const sent = await discordUser.send({ content: text, allowedMentions: { parse: [] } });
+      recordBotMessage(sent.channelId, client.user!.id, store.get().meta.name, text);
     } catch (err) {
       // closed DMs / blocked: remember so we stop trying, and count it as a strike
       log.warn({ userId: pick.id, err: (err as Error).message }, "outreach DM failed");

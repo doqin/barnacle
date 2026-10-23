@@ -80,6 +80,16 @@ export function pickHook(memories: MemoryRow[], now: Date): MemoryRow | null {
   return fresh.filter((m) => m.importance >= 3 || m.kind === "event").sort((a, b) => score(b) - score(a))[0] ?? null;
 }
 
+/** Different ways to open on a remembered topic, so DMs don't all read "hey, how did X go?". */
+const HOOK_STYLES = [
+  "Start with something from your OWN life that rhymes with the topic (a related habit, opinion, small struggle or embarrassing moment from the character sheet), then loop back to them in a few words.",
+  "React as if the topic just popped into your head while you were doing something mundane; say what you were doing, then mention it. A statement is fine, no question needed.",
+  "Tease them lightly about it, and add one honest line about how YOU feel about that topic.",
+  "Give a take or a confession of your own about the topic first, and only then, optionally, ask how it ended up for them.",
+  "Compare it to your own experience with something similar in one sentence, then leave an open door like \"anyway, update me\".",
+];
+export const pickHookStyle = (): string => HOOK_STYLES[Math.floor(Math.random() * HOOK_STYLES.length)]!;
+
 /** Things Kako can bring up on her own; kept to facts from the character sheet so nothing gets invented. */
 const INTERESTS = [
   "you've been relistening to Vulfpeck and a bass line got stuck in your head",

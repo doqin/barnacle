@@ -42,6 +42,9 @@ const schema = z.object({
   OUTREACH_MAX_STRIKES: z.coerce.number().default(3),
   OUTREACH_FIRE_PROBABILITY: z.coerce.number().min(0).max(1).default(0.4),
 
+  // Lets her notice what people are playing/listening to. Needs the privileged "Presence Intent" enabled in the developer portal.
+  PRESENCE_ENABLED: bool.default(false),
+
   LOG_LEVEL: z.string().default("info"),
 });
 
