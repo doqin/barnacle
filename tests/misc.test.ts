@@ -163,3 +163,17 @@ describe("stripMetaLeaks", () => {
     expect(stripMetaLeaks("it was fine (kinda) lol")).toBe("it was fine (kinda) lol");
   });
 });
+
+import { splitParts } from "../src/character/loader.js";
+describe("splitParts", () => {
+  it("cuts a reply into bubbles on the marker", () => {
+    expect(splitParts("burned the noodles <split> any luck with the Tokyo trip?", 4)).toEqual([
+      "burned the noodles",
+      "any luck with the Tokyo trip?",
+    ]);
+  });
+  it("drops empty beats and caps the count", () => {
+    expect(splitParts("<split>a<split> <split>b<split>c<split>d", 3)).toEqual(["a", "b", "c"]);
+    expect(splitParts("just one", 4)).toEqual(["just one"]);
+  });
+});
