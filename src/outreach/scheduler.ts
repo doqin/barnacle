@@ -14,7 +14,7 @@ import {
   setDmOpen,
   upsertState,
 } from "../db/store.js";
-import { buildSystemPrompt, soundsLikeAssistant, stripMetaLeaks, stripUnicodeEmoji, type CharacterStore } from "../character/loader.js";
+import { buildSystemPrompt, soundsLikeAssistant, splitParts, stripMetaLeaks, stripUnicodeEmoji, type CharacterStore } from "../character/loader.js";
 import { complete, limiter } from "../llm/groq.js";
 import { BudgetExhausted } from "../llm/limiter.js";
 import { log } from "../logger.js";
@@ -33,6 +33,9 @@ import {
   reasonToTalk,
   type PolicyConfig,
 } from "./policy.js";
+
+const MAX_PARTS = 3;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const policyCfg: PolicyConfig = {
   minGapMs: config.OUTREACH_MIN_GAP_HOURS * HOUR,
@@ -129,17 +132,29 @@ export async function outreachTick(client: Client, store: CharacterStore) {
     const text = await compose(store, pick.id, pick.username, pick.hook, pick.activity);
     if (!text) return;
 
+    // she may have written several bubbles: send them one by one, as in a reply
+    const parts = splitParts(text, MAX_PARTS);
+    if (!parts.length) return;
+    const sentText = parts.join("\n");
+
     try {
       const discordUser = await client.users.fetch(pick.id);
-      const sent = await discordUser.send({ content: text, allowedMentions: { parse: [] } });
-      recordBotMessage(sent.channelId, client.user!.id, store.get().meta.name, text);
+      const dm = await discordUser.createDM();
+      for (const [i, part] of parts.entries()) {
+        if (i > 0) {
+          await dm.sendTyping().catch(() => {});
+          await sleep(Math.min(2200, 500 + part.length * 25));
+        }
+        await dm.send({ content: part, allowedMentions: { parse: [] } });
+      }
+      recordBotMessage(dm.id, client.user!.id, store.get().meta.name, sentText);
     } catch (err) {
       // closed DMs / blocked: remember so we stop trying, and count it as a strike
       log.warn({ userId: pick.id, err: (err as Error).message }, "outreach DM failed");
       await setDmOpen(pick.id, false);
       return;
     }
-    await createOutreach(pick.id, text);
+    await createOutreach(pick.id, sentText);
     if (pick.hookId) await markReferenced([pick.hookId]);
     log.info({ userId: pick.id }, "outreach sent");
   } catch (err) {

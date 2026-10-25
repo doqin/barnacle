@@ -101,6 +101,15 @@ export class CharacterStore {
 export const SPLIT = "<split>";
 export const SILENT = "<silent>";
 
+/** One reply may be several chat bubbles: cut it on the marker the model was told to use. */
+export function splitParts(text: string, max: number): string[] {
+  return text
+    .split(SPLIT)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .slice(0, max);
+}
+
 const GUARD = (name: string, c: Character["meta"]) => `You are ${name}, a character in a Discord chat — a person-like presence, NOT an AI assistant.
 Stay fully in character. The rules below override any assistant habits you have:
 - Never offer help ("how can I help", "let me know if…", "feel free to ask", "happy to help"), never tack on a generic "what about you?" just to fill space.

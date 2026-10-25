@@ -6,6 +6,7 @@ import {
   dedupeRepeatedReply,
   SILENT,
   SPLIT,
+  splitParts,
   detectLanguage,
   dropRepeatedEmoticon,
   dropRepeatedTic,
@@ -372,7 +373,7 @@ async function respondInner(client: Client, store: CharacterStore, msg: Message,
   startTyping(); // she is replying: make sure the indicator is on for the pause and following parts
   const recentBot = (history.get(channelId) ?? []).filter((e) => e.isBot).slice(-4).map((e) => e.text);
   const parts: string[] = [];
-  for (const raw of reply.replaceAll(SILENT, "").split(SPLIT).slice(0, MAX_PARTS)) {
+  for (const raw of splitParts(reply.replaceAll(SILENT, ""), MAX_PARTS)) {
     let part = stripMetaLeaks(dropRepeatedEmoticon(dropRepeatedTic(dedupeRepeatedReply(raw.trim()), recentBot), recentBot));
     if (character.meta.emoji_style === "emoticon") part = stripUnicodeEmoji(part) || part;
     if (part && !parts.includes(part)) parts.push(part);
